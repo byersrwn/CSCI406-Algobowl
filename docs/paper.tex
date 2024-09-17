@@ -1,0 +1,216 @@
+\documentclass{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{placeins}
+\usepackage{titling}
+
+% Configure the title
+\setlength{\droptitle}{-6em}
+
+\title{Minimum Feedback Vertex Set Heuristics}
+\author{
+  Will Byers\\
+  \texttt{robert\_byers@mines.edu}
+  \and
+  James Crea\\
+  \texttt{jcrea@mines.edu}
+  \and
+  Bryce Irving\\
+  \texttt{bryceirving@mines.edu}
+}
+\date{\today}
+
+\fancypagestyle{plain}{
+    \fancyhf{}
+    \setlength{\headheight}{15pt}
+    \renewcommand{\headrulewidth}{0pt}
+    \fancyhead[R]{\thepage}
+    \fancyfoot[C]{\copyright \, \the\year{}, All Rights Reserved.}
+}
+\pagestyle{plain}
+
+\begin{document}
+\maketitle
+
+\section*{Abstract}
+
+We present several algorithms for approximating the minimum feedback vertex set problem in polynomial time via simulated automatons, iterative refinement, and divide-and-conquer strategies.
+
+\section*{Subroutines}
+
+\subsection*{Mapsort}
+
+Takes the unordered associative array $M$ as the sole parameter and returns a list of the keys of $M$ sorted in \textbf{descending} order by the respective values of $M$ via an efficient (i.e.: $\mathcal{O}(n \cdot \log(n))$) sort algorithm.
+
+\subsection*{Tarjan}
+
+Tarjan's strongly connected components algorithm which takes the unweighted, directed, potentially cyclic graph $G$ as the sole parameter and returns a set of subgraphs, such that each strongly connected component $c$ in $G$ maps to a subgraph of $G$ with all of the vertices in $c$ and only the edges within $c$.
+
+\subsection*{Automaton simulation}
+
+\label{alg:simulate}
+\begin{algorithmic}[1]
+  \Function{simulate}{$c$, $A$, $S$}
+  \State $T \gets$ map from vertices to \textit{traffic}, initialized to $0$ for each vertex in $c$
+
+  \For{$a = 1, \dots, A$} \Comment{Trivially parallelizable.}
+  \State $v \gets$ a random vertex in $c$
+  \For{$s = 1, \dots, S$}
+  \State $E \gets$ the set of edges in $c$ for which $v$ is a source vertex
+  \If{length of $E$ = 1}
+  \State $v \gets$ the destination vertex of the first and only edge in $E$
+  \Else
+  \State $v \gets$ the destination vertex of a random edge in $E$
+  \EndIf
+  \State $T[v] \gets T[v] + 1$
+  \EndFor
+  \EndFor
+
+  \State $T' \gets$ \Call{mapsort}{$T$}
+
+  \State \Return $T'$
+  \EndFunction
+\end{algorithmic}
+
+\FloatBarrier
+
+\noindent Where:
+\begin{itemize}
+  \item[] Parameter $c$ is a strongly connected, unweighted, directed component.
+  \item[] Parameter $A$ is the number of automatons to spawn.
+  \item[] Parameter $S$ is the number of simulation steps each automaton will run for.
+  \item[] Returned $T'$ is the vertices of $c$ sorted in descending order of traffic
+\end{itemize}
+
+\subsection*{Recursive filter}
+
+\label{alg:recursive-filter}
+\begin{algorithmic}[1]
+  \Function{recursive-filter}{$c$, $T'$, $i$, $j$}
+  \State $L \gets$ empty set of vertices
+  \Function{recursive-filter-helper}{$i$, $j$}
+  \State $U \gets$ empty graph
+
+  \For{vertex $v \in L$}
+  \State Add $v$ and all of its edges in $c$ to $U$
+  \EndFor
+
+  \For{vertex $v \in T'[i:j)$} \Comment{For each vertex in $T'$ from $i$ (inclusive) through $j$ (exclusive).}
+  \State Add $v$ and all of its edges in $c$ to $U$
+  \EndFor
+
+  \State $W \gets$ \Call{tarjan}{$U$}
+
+  \If{length of $W$ = number of vertices in $U$}
+  \State $L \gets L \cup T'[i:j)$ \Comment{Append the vertices in $T'$ from $i$ (inclusive) through $j$ (exclusive) are acyclic.}
+  \Else
+  \State $m \gets \lfloor \frac{i + j}{2} \rfloor$
+
+  \State \Call{recursive-filter-helper}{$i$, $m$}
+
+  \State \Call{recursive-filter-helper}{$m$, $j$}
+  \EndIf
+  \EndFunction
+
+  \State \Call{recursive-filter-helper}{$0$, $|T'|$}
+
+  \State \Return $L$
+  \EndFunction
+\end{algorithmic}
+
+\FloatBarrier
+
+\noindent Where:
+\begin{itemize}
+  \item[] Parameter $c$ is a strongly connected, unweighted, directed component.
+  \item[] Parameter $T'$ is the vertices of $c$ sorted in descending order of traffic.
+  \item[] Parameter $i$ is the start index in $T'$ (inclusive).
+  \item[] Parameter $j$ is the end index in $T'$ (exclusive).
+  \item[] Returned $L$ is the vertices in $T'$ which are acyclic.
+\end{itemize}
+
+\clearpage
+
+\section*{Routines}
+
+\begin{algorithm}
+  \caption{One-shot, linear filter heuristic}\label{alg:one-shot-linear}
+  \begin{algorithmic}[1]
+    \Function{solve}{$G$, $A$, $S$}
+    \State $C \gets$ \Call{tarjan}{$G$}
+
+    \If{length of $C$ = number of vertices in $G$}
+    \State \Return empty set of vertices \Comment{$G$ is acyclic, no further processing is necessary.}
+    \EndIf
+
+    \State $L \gets$ empty set of vertices
+
+    \ForAll{strongly-connected component $c \in C$} \Comment{Trivially parallelizable.}
+    \State $T' \gets$ \Call{simulate}{$c$, $A$, $S$}
+
+    \State $U \gets$ empty graph
+
+    \ForAll{vertex $v \in T'$}
+    \State $U' \gets U$
+
+    \State Add $v$ and all of its edges in $c$ to $U'$
+
+    \State $W \gets$ \Call{tarjan}{$U'$}
+
+    \If{length of $W$ = number of vertices in $U'$}
+    \State $U \gets U'$ \Comment{Update $U$ with $U'$ because $U'$ is acylic.}
+    \EndIf
+    \EndFor
+
+    \State $L \gets L \cup ($vertices in $c - U)$ \Comment{Append the vertices in $c$ which are acylic.}
+    \EndFor
+    \State \Return $L$
+    \EndFunction
+  \end{algorithmic}
+\end{algorithm}
+
+\FloatBarrier
+
+\noindent Where:
+\begin{itemize}
+  \item[] Parameter $G$ is an unweighted, directed, potentially cyclic graph.
+  \item[] Parameter $A$ is the number of automatons to spawn.
+  \item[] Parameter $S$ is the number of simulation steps each automaton will run for.
+  \item[] Returned $L$ is the (approximately smallest) set of vertices to remove from $G$ to make it acyclic (Note that removing all vertices in $L$ from $G$ is guaranteed to make $G$ acyclic).
+\end{itemize}
+
+\begin{algorithm}
+  \caption{One-shot, recursive filter heuristic}\label{alg:one-shot-recursive}
+  \begin{algorithmic}[1]
+    \Function{solve}{$G$, $A$, $S$}
+    \State $C \gets$ \Call{tarjan}{$G$}
+
+    \If{length of $C$ = number of vertices in $G$}
+    \State \Return empty set of vertices \Comment{$G$ is acyclic, no further processing is necessary.}
+    \EndIf
+
+    \State $L \gets$ empty set of vertices
+
+    \ForAll{strongly-connected component $c \in C$} \Comment{Trivially parallelizable.}
+    \State $T' \gets$ \Call{simulate}{$c$, $A$, $S$}
+    \EndFor
+    \State \Return $L$
+    \EndFunction
+  \end{algorithmic}
+\end{algorithm}
+
+\FloatBarrier
+
+\noindent Where:
+\begin{itemize}
+  \item[] Parameter $G$ is an unweighted, directed, potentially cyclic graph.
+  \item[] Parameter $A$ is the number of automatons to spawn.
+  \item[] Parameter $S$ is the number of simulation steps each automaton will run for.
+  \item[] Returned $L$ is the (approximately smallest) set of vertices to remove from $G$ to make it acyclic (Note that removing all vertices in $L$ from $G$ is guaranteed to make $G$ acyclic).
+\end{itemize}
+
+\end{document}
